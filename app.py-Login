@@ -1,0 +1,49 @@
+import streamlit as st
+import os
+import json
+from datetime import datetime
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "usuarios.json")
+
+st.set_page_config(page_title="RELATÓRIOS PSICOPEDAGÓGICOS", page_icon="🧠")
+st.markdown("<style>#MainMenu{visibility:hidden;} footer{visibility:hidden;} header{visibility:hidden;}</style>", unsafe_allow_html=True)
+
+def carregar_usuarios():
+    if not os.path.exists(DB_FILE):
+        return {}
+    with open(DB_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+usuarios = carregar_usuarios()
+
+if "usuario_logado" not in st.session_state:
+    st.session_state.usuario_logado = None
+
+st.title("🔐 RELATÓRIOS PSICOPEDAGÓGICOS")
+input_email = st.text_input("E-mail:")
+input_senha = st.text_input("Senha:", type="password")
+tipo_login = st.selectbox("Entrar como", ["Pais", "Admin / Mestre"])
+entrar = st.button("Entrar")
+
+if entrar:
+    email_norm = input_email.strip().lower()
+    if tipo_login == "Admin / Mestre":
+        if email_norm == "admin@portal.com" and input_senha == "12345":
+            st.session_state.usuario_logado = {"Nome": "Admin Mestre", "Admin": True}
+            st.success("Logado como Admin Mestre")
+        else:
+            st.error("❌ Credenciais de admin inválidas.")
+    else:
+        dados = usuarios.get(email_norm)
+        if not dados:
+            st.error("❌ E-mail não encontrado.")
+        elif dados.get("Senha") != input_senha:
+            st.error("❌ Senha incorreta.")
+        elif dados.get("Tipo", "").lower() != "pais":
+            st.error("❌ Este e-mail não é do tipo 'Pais'.")
+        elif dados.get("Status", "").lower() != "ativo":
+            st.error("❌ Usuário não está ativo.")
+        else:
+            st.session_state.usuario_logado = {"Nome": dados.get("Nome"), "Email": email_norm, "Admin": False}
+            st.success(f"✅ Bem-vindo(a), {dados.get('Nome')}!")
