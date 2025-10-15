@@ -1,8 +1,14 @@
 {
-    "ferroleandro55@gmail.com": {
-        "Nome": "Leandro",
-        "Senha": "938271",
-        "Tipo": "Pais",
-        "Status": "Ativo"
-    }
+  "ferroleandro55@gmail.com": {
+    "Nome": "Leandro",
+    "Senha": "938271",
+    "Tipo": "Pais",
+    "Status": "Ativo"
+  },
+  "ferroleandro@gmail.com": {
+    "Nome": "leandro",
+    "Senha": "938271",
+    "Tipo": "Pais",
+    "Status": "Ativo"
+  }
 }
