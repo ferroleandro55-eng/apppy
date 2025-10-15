@@ -1,166 +1,172 @@
-import os
-import pandas as pd
 import streamlit as st
 from datetime import datetime
+import os
+import json
 
 # --- Configuração da página ---
 st.set_page_config(
     page_title="🔐 RELATÓRIOS PSICOPEDAGÓGICOS",
-    page_icon="🔐",
-    layout="wide",
+    page_icon="🧠",
+    layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# --- Esconder menu, barra lateral e rodapé ---
-hide_streamlit_style = """
+# --- Esconde menus padrão do Streamlit ---
+st.markdown("""
     <style>
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         header {visibility: hidden;}
+        [data-testid="stSidebar"] {display: none;}
     </style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- Caminho base ---
+# --- Diretórios e arquivos ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PLANILHA = os.path.join(BASE_DIR, "dados.xlsx")
-PASTA_RELATORIOS = os.path.join(BASE_DIR, "relatorios")
+USUARIOS_FILE = os.path.join(BASE_DIR, "usuarios.json")
+RELATORIOS_DIR = os.path.join(BASE_DIR, "relatorios")
 
-if not os.path.exists(PASTA_RELATORIOS):
-    os.makedirs(PASTA_RELATORIOS)
+if not os.path.exists(RELATORIOS_DIR):
+    os.makedirs(RELATORIOS_DIR)
 
-# --- Criar planilha se não existir ---
-if not os.path.exists(PLANILHA):
-    df = pd.DataFrame(columns=["Nome do Aluno", "E-mail", "Senha", "Status"])
-    df.to_excel(PLANILHA, index=False)
-else:
-    df = pd.read_excel(PLANILHA, engine="openpyxl")
+# --- Criar arquivo de usuários se não existir ---
+if not os.path.exists(USUARIOS_FILE):
+    with open(USUARIOS_FILE, "w") as f:
+        json.dump({}, f)
 
-# --- Sessão ---
-if 'usuario' not in st.session_state:
-    st.session_state.usuario = None
-if 'senha_recuperacao' not in st.session_state:
-    st.session_state.senha_recuperacao = None
+with open(USUARIOS_FILE, "r") as f:
+    usuarios = json.load(f)
 
-# --- Login ---
+# --- Interface de login ---
 st.title("🔐 RELATÓRIOS PSICOPEDAGÓGICOS")
+
 email = st.text_input("E-mail:")
 senha = st.text_input("Senha:", type="password")
-tipo_login = st.selectbox("Entrar como", ["Pais", "Admin / Mestre"])
+tipo_login = st.selectbox("Entrar como:", ["Selecione", "Pais", "Admin / Mestre"])
 login = st.button("Entrar")
-recuperar_senha = st.button("Esqueci minha senha")
 
-if recuperar_senha:
-    if email:
-        filtro = df[df["E-mail"].astype(str) == email]
-        if not filtro.empty:
-            st.info(f"Sua senha é: {filtro.iloc[0]['Senha']}")
-        else:
-            st.error("E-mail não encontrado.")
-    else:
-        st.warning("Digite o e-mail para recuperar a senha.")
+usuario = None
 
+# --- Lógica de login ---
 if login:
-    usuario = None
     if tipo_login == "Admin / Mestre":
-        if email == "admin@portal.com" and senha == "12345":
-            usuario = {"Nome do Aluno": "Admin Mestre", "Status": "Ativo", "Admin": True}
+        if email.strip().lower() == "admin@portal.com" and senha == "12345":
+            usuario = {"nome": "Admin Mestre", "email": email, "admin": True}
         else:
             st.error("❌ Credenciais de admin inválidas.")
-    else:
-        filtro = df[(df["E-mail"].astype(str) == email) & (df["Senha"].astype(str) == senha)]
-        if not filtro.empty:
-            usuario = filtro.iloc[0].to_dict()
-            usuario["Admin"] = False
+    elif tipo_login == "Pais":
+        if email in usuarios and usuarios[email]["senha"] == senha:
+            usuario = usuarios[email]
+            usuario["email"] = email
+            usuario["admin"] = False
         else:
             st.error("❌ E-mail ou senha incorretos.")
+    else:
+        st.warning("⚠️ Selecione o tipo de login.")
 
-    if usuario:
-        st.session_state.usuario = usuario
+# --- Função 'Esqueci minha senha' ---
+with st.expander("🔑 Esqueci minha senha"):
+    recuperar_email = st.text_input("Digite seu e-mail cadastrado:")
+    if st.button("Recuperar senha"):
+        if recuperar_email in usuarios:
+            st.success(f"✅ Sua senha é: **{usuarios[recuperar_email]['senha']}**")
+        elif recuperar_email.strip().lower() == "admin@portal.com":
+            st.info("🧠 O admin usa a senha padrão: **12345**")
+        else:
+            st.error("❌ E-mail não encontrado.")
 
 # --- Área logada ---
-if st.session_state.usuario:
-    usuario = st.session_state.usuario
-    st.success(f"✅ Bem-vindo(a), {usuario['Nome do Aluno']}!")
-    st.info(f"📋 Status: {usuario['Status']}")
+if usuario:
+    st.success(f"✅ Bem-vindo(a), {usuario['nome']}!")
 
-    if usuario.get("Admin"):
-        st.subheader("📌 Área do Admin")
-        # --- Cadastrar Usuário ---
-        st.markdown("### Cadastrar novo usuário")
-        with st.form("form_cadastro", clear_on_submit=True):
-            nome_novo = st.text_input("Nome do Usuário")
-            email_novo = st.text_input("E-mail")
-            senha_nova = st.text_input("Senha")
-            status_novo = st.selectbox("Status", ["Ativo", "Inativo"])
-            tipo_novo = st.selectbox("Tipo de Login", ["Pais", "Admin / Mestre"])
-            botao_cadastrar = st.form_submit_button("Cadastrar")
-            if botao_cadastrar:
-                if nome_novo and email_novo and senha_nova:
-                    if email_novo in df["E-mail"].astype(str).values:
-                        st.error("E-mail já cadastrado.")
-                    else:
-                        df.loc[len(df)] = [nome_novo, email_novo, senha_nova, status_novo]
-                        df.to_excel(PLANILHA, index=False)
-                        st.success(f"✅ Usuário {nome_novo} cadastrado com sucesso!")
-                else:
-                    st.warning("Preencha todos os campos.")
+    # ------------------------ ÁREA DO ADMIN ------------------------
+    if usuario["admin"]:
+        st.subheader("📋 Painel do Administrador")
+
+        # --- Cadastrar novo usuário ---
+        st.markdown("---")
+        st.subheader("👤 Cadastrar novo usuário")
+        novo_nome = st.text_input("Nome completo:")
+        novo_email = st.text_input("E-mail do usuário:")
+        nova_senha = st.text_input("Senha:")
+        if st.button("Cadastrar usuário"):
+            if novo_email in usuarios:
+                st.warning("⚠️ Esse e-mail já está cadastrado.")
+            else:
+                usuarios[novo_email] = {"nome": novo_nome, "senha": nova_senha}
+                with open(USUARIOS_FILE, "w") as f:
+                    json.dump(usuarios, f)
+                st.success("✅ Usuário cadastrado com sucesso!")
 
         # --- Remover usuário ---
-        st.markdown("### Remover usuário")
-        email_remover = st.selectbox("Selecione o usuário", df["E-mail"].astype(str))
-        if st.button("Remover"):
-            df = df[df["E-mail"].astype(str) != email_remover]
-            df.to_excel(PLANILHA, index=False)
-            st.success("Usuário removido com sucesso!")
-
-        # --- Upload de Relatórios ---
-        st.markdown("### Anexar Relatório PDF")
-        relatorio_file = st.file_uploader("Escolha o PDF", type=["pdf"])
-        if not df.empty:
-            usuarios_para_relatorio = st.multiselect("Para quais usuários?", df["E-mail"].astype(str))
+        st.markdown("---")
+        st.subheader("🗑️ Remover usuário")
+        if usuarios:
+            email_remover = st.selectbox("Selecione o e-mail do usuário:", list(usuarios.keys()))
+            if st.button("Remover usuário"):
+                usuarios.pop(email_remover)
+                with open(USUARIOS_FILE, "w") as f:
+                    json.dump(usuarios, f)
+                st.success("✅ Usuário removido com sucesso!")
         else:
-            usuarios_para_relatorio = []
-        if st.button("Enviar Relatório"):
-            if relatorio_file and usuarios_para_relatorio:
-                for u in usuarios_para_relatorio:
-                    caminho_pdf = os.path.join(PASTA_RELATORIOS, f"{u}_{relatorio_file.name}")
-                    with open(caminho_pdf, "wb") as f:
-                        f.write(relatorio_file.getbuffer())
-                st.success("Relatório enviado!")
+            st.info("Nenhum usuário cadastrado ainda.")
+
+        # --- Enviar relatório ---
+        st.markdown("---")
+        st.subheader("📎 Enviar relatório em PDF")
+        arquivo = st.file_uploader("Selecione o arquivo PDF:", type=["pdf"])
+        if usuarios:
+            usuario_destino = st.selectbox("Enviar para o usuário:", list(usuarios.keys()))
+        else:
+            usuario_destino = None
+
+        if st.button("Enviar PDF"):
+            if not arquivo:
+                st.warning("Selecione um arquivo antes de enviar.")
+            elif not usuario_destino:
+                st.warning("Selecione um usuário destino.")
             else:
-                st.warning("Selecione um arquivo e pelo menos um usuário.")
+                caminho = os.path.join(RELATORIOS_DIR, f"{usuario_destino}_{arquivo.name}")
+                with open(caminho, "wb") as f:
+                    f.write(arquivo.getbuffer())
+                st.success("✅ Relatório enviado com sucesso!")
 
-        # --- Remover Relatório ---
-        st.markdown("### Excluir Relatório")
-        pdfs_existentes = [f for f in os.listdir(PASTA_RELATORIOS) if f.lower().endswith(".pdf")]
-        pdf_para_remover = st.selectbox("Selecione o relatório", pdfs_existentes)
-        if st.button("Excluir Relatório"):
-            if pdf_para_remover:
-                os.remove(os.path.join(PASTA_RELATORIOS, pdf_para_remover))
-                st.success("Relatório removido!")
-
-    # --- Área do usuário ---
-    else:
-        st.subheader("📄 Seus relatórios:")
-        nome_aluno = str(usuario["Nome do Aluno"])
-        relatorios = [f for f in os.listdir(PASTA_RELATORIOS) if nome_aluno.lower() in f.lower() and f.lower().endswith(".pdf")]
-        if not relatorios:
-            st.warning("Nenhum relatório encontrado para você.")
+        # --- Excluir relatório ---
+        st.markdown("---")
+        st.subheader("🗑️ Excluir relatório existente")
+        relatorios = [f for f in os.listdir(RELATORIOS_DIR) if f.endswith(".pdf")]
+        if relatorios:
+            relatorio_excluir = st.selectbox("Selecione o arquivo para excluir:", relatorios)
+            if st.button("Excluir relatório"):
+                os.remove(os.path.join(RELATORIOS_DIR, relatorio_excluir))
+                st.success("✅ Relatório excluído com sucesso!")
         else:
-            for pdf in relatorios:
-                caminho_pdf = os.path.join(PASTA_RELATORIOS, pdf)
+            st.info("Nenhum relatório disponível para exclusão.")
+
+        st.markdown("---")
+        st.caption("📘 Sistema desenvolvido por **Leandro_Ferro** — Todos os direitos reservados ©")
+
+    # ------------------------ ÁREA DO USUÁRIO ------------------------
+    else:
+        st.subheader("📂 Seus Relatórios")
+        relatorios_user = [f for f in os.listdir(RELATORIOS_DIR) if f.startswith(usuario["email"])]
+        if not relatorios_user:
+            st.warning("⚠️ Nenhum relatório disponível no momento.")
+        else:
+            for relatorio in relatorios_user:
+                caminho_pdf = os.path.join(RELATORIOS_DIR, relatorio)
+                nome_pdf = relatorio.split("_", 1)[1]
                 st.download_button(
-                    label=f"⬇️ Baixar {pdf}",
+                    label=f"⬇️ Baixar {nome_pdf}",
                     data=open(caminho_pdf, "rb").read(),
-                    file_name=pdf,
+                    file_name=nome_pdf,
                     mime="application/pdf"
                 )
-                st.info(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-# --- Observação ---
-st.markdown("---")
-st.markdown("Sistema criado por **Leandro_Ferro** — Todos os direitos reservados.")
+        st.markdown("---")
+        st.caption("📘 Sistema desenvolvido por **Leandro_Ferro** — Todos os direitos reservados ©")
+
+
 
 
 
