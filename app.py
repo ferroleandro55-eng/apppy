@@ -1,201 +1,254 @@
-Importar OS
-importar json
-Importar Streamlit como st
-de datetime importar datetime
+# app.py - Versão estável e corrigida (sem recarregar durante cadastro)
+import os
+import json
+import streamlit as st
+from datetime import datetime
 
-# --- Configuração ---
-st.set_page_config(page_title="PortalPsico", page_icon="🧠", layout="wide")
-st.markdown("<estilo>#MainMenu{visibilidade:oculto;} rodapé {visibilidade: oculto;} cabeçalho {visibilidade: oculto;}</style>", unsafe_allow_html=True)
+# ---------------- Configurações ----------------
+st.set_page_config(page_title="RELATÓRIOS PSICOPEDAGÓGICOS", page_icon="🧠", layout="wide")
+st.markdown("<style>#MainMenu{visibility:hidden;} footer{visibility:hidden;} header{visibility:hidden;}</style>", unsafe_allow_html=True)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "usuarios.json")
-PASTA_RELATORIOS = os.path.join(BASE_DIR, "relatorios")
+REL_DIR = os.path.join(BASE_DIR, "relatorios")
 MAP_FILE = os.path.join(BASE_DIR, "relatorios_map.json")
-os.makedirs(PASTA_RELATORIOS, exist_ok=True)
+os.makedirs(REL_DIR, exist_ok=True)
 
-# --- Funções auxiliares ---
-def carregar_usuarios():
-se não for os.path.exists(DB_FILE):
-retornar {}
-com open(DB_FILE, "r", encoding="utf-8") como f:
-retornar json.load(f)
+# ---------------- Helpers ----------------
+def load_json(path, default):
+    if not os.path.exists(path):
+        return default
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
 
-def salvar_usuarios(usuarios_dict):
-com open(DB_FILE, "w", encoding="utf-8") como f:
-json.dump(usuarios_dict, f, recuo=4, ensure_ascii=Falso)
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
-def carregar_rel_map():
-Se os.path.exists(MAP_FILE):
-com open(MAP_FILE, "r", encoding="utf-8") como f:
-retornar json.load(f)
-retornar {}
+def normalize_email(e: str) -> str:
+    return e.strip().lower()
 
-def salvar_rel_map(mapa):
-com open(MAP_FILE, "w", encoding="utf-8") como f:
-json.dump(mapa, f, recuo=4, ensure_ascii=Falso)
+def save_uploaded_pdf(file_obj):
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = f"{ts}_{file_obj.name}"
+    path = os.path.join(REL_DIR, safe_name)
+    with open(path, "wb") as f:
+        f.write(file_obj.getbuffer())
+    return safe_name
 
-def salvar_arquivo_para_usuario(usuario_nome, arquivo):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = f"{timestamp}_{arquivo.name}"
-    destino = os.path.join(PASTA_RELATORIOS, safe_name)
-com open(destino, "wb") como f:
-        f.write(arquivo.getbuffer())
-Devolução safe_name
+# ---------------- Load data ----------------
+usuarios = load_json(DB_FILE, {})   # {email_norm: {"Nome","Senha","Tipo","Status"}}
+rel_map = load_json(MAP_FILE, {})   # {filename: owner_name_or_Todos}
 
-# --- Carregar dados ---
-usuários = carregar_usuarios()
-rel_map = carregar_rel_map()
+# ---------------- Session init ----------------
+if "user" not in st.session_state:
+    st.session_state.user = None        # normalized email of logged user
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+if "show_recover" not in st.session_state:
+    st.session_state.show_recover = False
+# safe place to hold transient messages:
+if "msg" not in st.session_state:
+    st.session_state.msg = None
 
-# --- Sessão ---
-se "usuario_logado" não estiver em st.session_state:
-st.session_state.usuario_logado = Nenhum
-
-se "mostrar_recuperar" não estiver em st.session_state:
-st.session_state.mostrar_recuperar = Falso
-
-# --- Interface ---
+# ---------------- UI: título ----------------
 st.title("🔐 RELATÓRIOS PSICOPEDAGÓGICOS")
+st.write("Sistema local — usuários em arquivo JSON — relatórios em PDF na pasta `relatorios/`")
 
-# LOGIN ou RECUPERAÇÃO
-se não for st.session_state.usuario_logado:
-se não st.session_state.mostrar_recuperar:
-        col1, col2 = st.columns([2, 1])
-com col1:
-            input_email = st.text_input("E-mail:")
-            input_senha = st.text_input("Senha:", type="password")
-            tipo_login = st.selectbox("Entrar como", ["Pais", "Admin / Mestre"])
-            entrar = st.button("Entrar")
-            if st.button("Esqueci minha senha"):
-st.session_state.mostrar_recuperar = Verdadeiro
-                st.experimental_rerun()
-com col2:
-            st.info("Bem-vindo ao PortalPsico. Faça login ou recupere sua senha.")
-mais:
-        st.subheader("🔑 Recuperar senha")
-        recuperar_email = st.text_input("Digite o e-mail cadastrado:")
-        if st.button("Mostrar senha"):
-dados = usuarios.get(recuperar_email.tira().lower())
-se dados:
-                st.success(f"✅ Sua senha é: **{dados['Senha']}**")
-mais:
-                st.error("❌ Este e-mail não está cadastrado.")
-mais:
-    # Área do Usuário (Pais)
-    st.header("📜 Meus Relatórios")
-    encontrados = [(f, os.path.join(PASTA_RELATORIOS, f)) for f, dono in rel_map.items() if dono == "Todos" or dono == st.session_state.usuario_logado["Nome"]]
-se encontrados:
-        for fname, path in encontrados:
-com open(caminho, "rb") como f:
-                st.download_button(f"⬇️ {fname}", f.read(), file_name=fname)
-mais:
-        st.warning("Nenhum relatório disponível.")
+# ---------------- LOGIN (form) ----------------
+if st.session_state.user is None and not st.session_state.show_recover:
+    with st.form("login_form"):
+        login_email = st.text_input("E-mail", key="login_email")
+        login_password = st.text_input("Senha", type="password", key="login_pwd")
+        login_type = st.selectbox("Entrar como", ["Pais", "Admin / Mestre"], key="login_type")
+        login_submit = st.form_submit_button("Entrar")
+        if login_submit:
+            em = normalize_email(login_email)
+            if login_type == "Admin / Mestre":
+                # credenciais fixas do Admin
+                if em == "admin@portal.com" and login_password == "12345":
+                    st.session_state.user = em
+                    st.session_state.is_admin = True
+                    st.session_state.msg = ("success", "✅ Logado como Admin Mestre")
+                else:
+                    st.session_state.msg = ("error", "❌ Credenciais de admin inválidas.")
+            else:
+                user = usuarios.get(em)
+                if not user:
+                    st.session_state.msg = ("error", "❌ E-mail não encontrado.")
+                elif user.get("Senha") != login_password:
+                    st.session_state.msg = ("error", "❌ Senha incorreta.")
+                elif user.get("Status", "Ativo").strip().lower() != "ativo":
+                    st.session_state.msg = ("error", "❌ Usuário inativo.")
+                else:
+                    st.session_state.user = em
+                    st.session_state.is_admin = False
+                    st.session_state.msg = ("success", f"✅ Bem-vindo(a), {user.get('Nome')}!")
 
-    # Cadastro de Usuário
-com st.expander("📝 Cadastrar usuário"):
-        nome = st.text_input("Nome do usuário:")
-        senha_nova = st.text_input("Senha:", type="password")
-        tipo_novo = st.selectbox("Tipo de usuário", ["Pais", "Admin / Mestre"])
-        status_novo = st.selectbox("Status", ["Ativo", "Inativo"])
-        e_norm = input_email.strip().lower()
-        if st.button("Cadastrar"):
-Se e_norm em Usuários:
-                st.error("❌ Este e-mail já está cadastrado.")
-mais:
-                usuarios[e_norm] = {"Nome": nome.strip(), "Senha": senha_nova, "Tipo": tipo_novo, "Status": status_novo}
-                salvar_usuarios(usuarios)
-                st.session_state.usuario_logado = usuarios[e_norm]  # Atualiza a sessão para o novo usuário
-                st.success(f"✅ Usuário '{nome}' cadastrado com sucesso!")
+    # botões fora do form para recuperar senha
+    cols = st.columns([1,1,3])
+    if cols[0].button("Esqueci minha senha"):
+        st.session_state.show_recover = True
+    if st.session_state.msg:
+        typ, text = st.session_state.msg
+        if typ == "success":
+            st.success(text)
+        else:
+            st.error(text)
 
-    # REMOVER USUÁRIO
-    with st.expander("🗑 Remover usuário"):
-Se usuarios:
-            lista_usuarios = [f"{email} — {dados['Nome']}" for email, dados in usuarios.items()]
-            sel = st.selectbox("Escolha um usuário", lista_usuarios)
-            if st.button("Remover usuário selecionado"):
-                email_sel = sel.split(" — ")[0]
-Se email_sel em Usuários:
-                    nome_rem = usuarios[email_sel]["Nome"]
-                    del usuarios[email_sel]
-                    salvar_usuarios(usuarios)
-                    st.success(f"✅ Usuário '{nome_rem}' removido.")
-                    st.experimental_rerun()
-mais:
+# ---------------- RECUPERAR SENHA ----------------
+if st.session_state.show_recover:
+    st.subheader("🔑 Recuperar senha")
+    with st.form("recover_form"):
+        rec_email = st.text_input("Digite o e-mail cadastrado para ver a senha", key="rec_email")
+        rec_submit = st.form_submit_button("Mostrar senha")
+        if rec_submit:
+            em = normalize_email(rec_email)
+            user = usuarios.get(em)
+            if not user:
+                st.error("❌ E-mail não encontrado.")
+            else:
+                st.success(f"✅ A senha cadastrada é: **{user.get('Senha')}**")
+    if st.button("Voltar ao login"):
+        st.session_state.show_recover = False
+        st.session_state.msg = None
+
+# ---------------- ÁREA LOGADA ----------------
+if st.session_state.user:
+    st.markdown("---")
+    # cabeçalho com info e logout
+    cols = st.columns([3,1])
+    with cols[0]:
+        if st.session_state.is_admin:
+            st.header("Área do Admin — Gestão")
+        else:
+            nome_logado = usuarios.get(st.session_state.user, {}).get("Nome", st.session_state.user)
+            st.header(f"Área do Usuário — {nome_logado}")
+    with cols[1]:
+        if st.button("Sair"):
+            st.session_state.user = None
+            st.session_state.is_admin = False
+            st.session_state.msg = None
+
+    # ---------------- ADMIN ----------------
+    if st.session_state.is_admin:
+        # 1) Cadastrar novo usuário (form)
+        st.subheader("➕ Cadastrar novo usuário")
+        with st.form("form_cadastrar_admin"):
+            cad_nome = st.text_input("Nome completo", key="cad_nome")
+            cad_email = st.text_input("E-mail (ex: pai@email.com)", key="cad_email")
+            cad_senha = st.text_input("Senha", type="password", key="cad_senha")
+            cad_conf = st.text_input("Confirmar senha", type="password", key="cad_conf")
+            cad_tipo = st.selectbox("Tipo de usuário", ["Pais", "Admin / Mestre"], key="cad_tipo")
+            cad_status = st.selectbox("Status", ["Ativo", "Inativo"], key="cad_status")
+            cad_submit = st.form_submit_button("Cadastrar")
+            if cad_submit:
+                em = normalize_email(cad_email)
+                if not cad_nome or not cad_email or not cad_senha or not cad_conf:
+                    st.warning("⚠️ Preencha todos os campos.")
+                elif cad_senha != cad_conf:
+                    st.error("❌ A senha e a confirmação não conferem.")
+                elif em in usuarios:
+                    st.error("❌ E-mail já cadastrado.")
+                else:
+                    usuarios[em] = {"Nome": cad_nome.strip(), "Senha": cad_senha, "Tipo": cad_tipo, "Status": cad_status}
+                    save_json(DB_FILE, usuarios)
+                    st.success(f"✅ Usuário '{cad_nome}' cadastrado com sucesso.")
+                    # atualizar lista local (já salvo no arquivo)
+        st.markdown("---")
+
+        # 2) Remover usuário
+        st.subheader("🗑 Remover usuário")
+        if usuarios:
+            opts = [f"{e} — {d.get('Nome')}" for e,d in usuarios.items()]
+            with st.form("form_remover"):
+                sel = st.selectbox("Escolha usuário (email — nome)", opts, key="rem_sel")
+                rem_submit = st.form_submit_button("Remover")
+                if rem_submit:
+                    em_sel = sel.split(" — ")[0]
+                    nome_rem = usuarios.get(em_sel, {}).get("Nome")
+                    if em_sel in usuarios:
+                        # remover entradas do mapa que apontam para esse nome
+                        to_delete = [k for k,v in rel_map.items() if v == usuarios[em_sel].get("Nome")]
+                        for k in to_delete:
+                            # remove arquivo e map
+                            path = os.path.join(REL_DIR, k)
+                            if os.path.exists(path):
+                                try: os.remove(path)
+                                except: pass
+                            rel_map.pop(k, None)
+                        usuarios.pop(em_sel, None)
+                        save_json(DB_FILE, usuarios)
+                        save_json(MAP_FILE, rel_map)
+                        st.success(f"✅ Usuário '{nome_rem}' removido.")
+        else:
             st.info("Nenhum usuário cadastrado.")
 
-    # UPLOAD DE RELATÓRIOS
-    with st.expander("📁 Enviar relatórios"):
-com st.form("form_upload"):
-            arquivo_pdf = st.file_uploader("Selecione o PDF", type=["pdf"])
-lista_pais = [u["Nome"] for u in usuarios.values() if you.get("Tipo", "").lower() == "pais"]
-            destino_sel = st.selectbox("Enviar para", ["Todos"] + lista_pais)
-            enviar = st.form_submit_button("Enviar")
-Se enviar:
-se não arquivo_pdf:
-                    st.warning("⚠️ Selecione um arquivo primeiro.")
-mais:
-                    saved_name = salvar_arquivo_para_usuario(destino_sel, arquivo_pdf)
-                    rel_map[saved_name] = destino_sel
-                    salvar_rel_map(rel_map)
-                    st.success(f"✅ Relatório enviado para {destino_sel}!")
+        st.markdown("---")
+        # 3) Upload de relatórios
+        st.subheader("📁 Enviar relatório (PDF)")
+        with st.form("form_upload_admin"):
+            upload_pdf = st.file_uploader("Selecione o PDF", type=["pdf"], key="up_pdf")
+            list_pais = [d["Nome"] for e,d in usuarios.items() if d.get("Tipo","").strip().lower() == "pais"]
+            dest = st.selectbox("Enviar para", ["Todos"] + list_pais, key="up_dest")
+            up_submit = st.form_submit_button("Enviar PDF")
+            if up_submit:
+                if not upload_pdf:
+                    st.warning("⚠️ Selecione um PDF antes de enviar.")
+                else:
+                    saved = save_uploaded_pdf(upload_pdf)
+                    rel_map[saved] = dest
+                    save_json(MAP_FILE, rel_map)
+                    st.success(f"✅ PDF enviado como '{saved}' para: {dest}")
 
-    # EXCLUIR RELATÓRIO
-    with st.expander("🧹 Excluir relatórios"):
-Em caso rel_map:
-relatórios = lista(rel_map.chaves())
-sel_rel = st.selectbox("Escolha o relatório para excluir", relatórios)
-            if st.button("Excluir relatório"):
-                caminho = os.path.join(PASTA_RELATORIOS, sel_rel)
-                if os.path.exists(caminho):
-                    os.remove(caminho)
-                del rel_map[sel_rel]
-                salvar_rel_map(rel_map)
-                st.success(f"🗑 Relatório '{sel_rel}' excluído com sucesso!")
-                st.experimental_rerun()
-mais:
-            st.info("Nenhum relatório para excluir.")
+        st.markdown("---")
+        # 4) Listagem e exclusão de relatórios
+        st.subheader("📂 Relatórios no servidor")
+        if rel_map:
+            # mostrar em ordem decrescente
+            for fname, owner in sorted(rel_map.items(), reverse=True):
+                path = os.path.join(REL_DIR, fname)
+                if os.path.exists(path):
+                    c0, c1, c2 = st.columns([6,1,1])
+                    c0.write(f"{fname}  —  {owner}")
+                    if c1.button("🗑 Excluir", key=f"del_{fname}"):
+                        try:
+                            os.remove(path)
+                        except Exception as e:
+                            st.error(f"Erro ao excluir: {e}")
+                        rel_map.pop(fname, None)
+                        save_json(MAP_FILE, rel_map)
+                        st.success(f"🗑 Relatório '{fname}' excluído.")
+                    # botão de download
+                    data = open(path, "rb").read()
+                    c2.download_button("⬇️ Baixar", data=data, file_name=fname, mime="application/pdf")
+        else:
+            st.info("Nenhum relatório enviado ainda.")
 
-    # VISUALIZAR RELATÓRIOS
-    st.subheader("📂 Relatórios Enviados")
-Em caso rel_map:
-para fname, dono em rel_map.items():
-caminho = os.path.join(PASTA_RELATORIOS, fname)
-            st.write(f"- {fname} (enviado para: {dono})")
-mais:
-        st.info("Nenhum relatório enviado.")
+    # ---------------- USUÁRIO (Pais) ----------------
+    else:
+        st.subheader("📄 Meus relatórios")
+        user_email = st.session_state.user
+        user_nome = usuarios.get(user_email, {}).get("Nome")
+        encontrados = []
+        for fname, owner in rel_map.items():
+            if owner == "Todos" or owner == user_nome:
+                path = os.path.join(REL_DIR, fname)
+                if os.path.exists(path):
+                    encontrados.append((fname, path))
+        if not encontrados:
+            st.warning("Nenhum relatório disponível para você.")
+        else:
+            for fname, path in sorted(encontrados, reverse=True):
+                with open(path, "rb") as f:
+                    st.download_button(label=f"⬇️ {fname}", data=f.read(), file_name=fname, mime="application/pdf")
 
-    # BOTÃO LOGOUT
-    if st.button("Sair do sistema"):
-st.session_state.usuario_logado = Nenhum
-        st.experimental_rerun()
-
-# --- Rodapé com direitos autorais ---
-st.markdown("""
-< horas>
-<div style='text-align:center; tamanho da fonte: 13px; cor: cinza;' >
-© 2025 <b>PortalPsico</b> — Desenvolvido por <b>Leandro Ferro</b>. Todos os direitos reservados.
-</div>
-""", unsafe_allow_html=Verdadeiro)
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ---------------- Footer ----------------
+st.markdown("---")
+st.markdown("<div style='text-align:center; color:gray;'>© 2025 PortalPsico — Desenvolvido por <b>Leandro Ferro</b>. Todos os direitos reservados.</div>", unsafe_allow_html=True)
 
 
 
