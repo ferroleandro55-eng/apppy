@@ -1,156 +1,195 @@
-import os
-import json
 import streamlit as st
-from datetime import datetime
+import json
+import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
 
-# --- Configurações da página ---
-st.set_page_config(page_title="🔐 RELATÓRIOS PSICOPEDAGÓGICOS", layout="wide")
-st.markdown("""
-    <style>
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-    </style>
-""", unsafe_allow_html=True)
+# ========================================
+# 🔐 CONFIGURAÇÕES GERAIS
+# ========================================
+st.set_page_config(page_title="Relatórios Psicopedagógicos", page_icon="🧠", layout="centered")
 
-# --- Pastas e arquivos ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-USUARIOS_FILE = os.path.join(BASE_DIR, "usuarios.json")
-PASTA_RELATORIOS = os.path.join(BASE_DIR, "relatorios")
-os.makedirs(PASTA_RELATORIOS, exist_ok=True)
+# Caminhos para arquivos de dados
+USUARIOS_FILE = "usuarios.json"
+RELATORIOS_DIR = "relatorios"
 
-# --- Carregar usuários ---
-if os.path.exists(USUARIOS_FILE):
-    with open(USUARIOS_FILE, "r") as f:
-        usuarios = json.load(f)
-else:
-    usuarios = {}  # Estrutura: {email: {"nome": "", "senha": "", "tipo": "Pais"}}
+if not os.path.exists(RELATORIOS_DIR):
+    os.makedirs(RELATORIOS_DIR)
 
-# --- Função para salvar usuários ---
-def salvar_usuarios():
+# ========================================
+# 📂 FUNÇÕES AUXILIARES
+# ========================================
+def carregar_usuarios():
+    if os.path.exists(USUARIOS_FILE):
+        with open(USUARIOS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def salvar_usuarios(usuarios):
     with open(USUARIOS_FILE, "w") as f:
         json.dump(usuarios, f, indent=4)
 
-# --- Função para enviar e-mail ---
-def enviar_email(destino, assunto, corpo):
+def enviar_email(destinatario, assunto, mensagem):
     try:
-        email_remetente = "SEU_EMAIL_AQUI@gmail.com"
-        senha_app = "SUA_SENHA_DE_APP_AQUI"
+        remetente = "leandrobarbosa.barbosa123@gmail.com"  # e-mail do Leandro
+        senha = "sgxzujfkhadrvezo"  # senha de app do Gmail (não senha real)
         msg = MIMEMultipart()
-        msg["From"] = email_remetente
-        msg["To"] = destino
+        msg["From"] = remetente
+        msg["To"] = destinatario
         msg["Subject"] = assunto
-        msg.attach(MIMEText(corpo, "plain"))
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(email_remetente, senha_app)
-        server.send_message(msg)
-        server.quit()
+        msg.attach(MIMEText(mensagem, "plain"))
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(remetente, senha)
+            server.send_message(msg)
+        return True
     except Exception as e:
-        st.warning(f"⚠️ Não foi possível enviar e-mail: {e}")
+        print("Erro ao enviar e-mail:", e)
+        return False
 
-# --- Login ---
-st.title("🔐 RELATÓRIOS PSICOPEDAGÓGICOS")
-email_login = st.text_input("E-mail:")
-senha_login = st.text_input("Senha:", type="password")
-tipo_login = st.selectbox("Entrar como", ["Pais", "Admin / Mestre"])
-login_btn = st.button("Entrar")
+def listar_relatorios(email_usuario):
+    pasta_usuario = os.path.join(RELATORIOS_DIR, email_usuario)
+    if not os.path.exists(pasta_usuario):
+        return []
+    return os.listdir(pasta_usuario)
 
-usuario_logado = None
+# ========================================
+# 🧾 TÍTULO E CABEÇALHO
+# ========================================
+st.markdown("<h1 style='text-align: center; color: #4B0082;'>🔐 RELATÓRIOS PSICOPEDAGÓGICOS</h1>", unsafe_allow_html=True)
 
-if login_btn:
-    if tipo_login == "Admin / Mestre":
-        if email_login == "admin@portal.com" and senha_login == "12345":
-            usuario_logado = {"nome": "Admin", "tipo": "Admin"}
+# ========================================
+# 🔑 LOGIN
+# ========================================
+usuarios = carregar_usuarios()
+
+aba = st.sidebar.radio("Menu", ["Login", "Recuperar Senha", "Criar Usuário (ADM)"])
+
+# ========================================
+# 🔹 LOGIN DE USUÁRIO
+# ========================================
+if aba == "Login":
+    email = st.text_input("E-mail:")
+    senha = st.text_input("Senha:", type="password")
+    tipo = st.selectbox("Entrar como", ["Pais", "Adm"])
+    entrar = st.button("Entrar")
+
+    if entrar:
+        if email in usuarios and usuarios[email]["senha"] == senha and usuarios[email]["tipo"] == tipo:
+            st.session_state["usuario"] = email
+            st.session_state["tipo"] = tipo
+            st.success(f"✅ Bem-vindo, {usuarios[email]['nome']}!")
+
         else:
-            st.error("❌ Credenciais de admin inválidas.")
-    else:
-        u = usuarios.get(email_login)
-        if u and u["senha"] == senha_login and u["tipo"] == "Pais":
-            usuario_logado = {"nome": u["nome"], "tipo": "Pais", "email": email_login}
+            st.error("❌ E-mail ou senha incorreta.")
+
+# ========================================
+# 🔹 RECUPERAR SENHA
+# ========================================
+elif aba == "Recuperar Senha":
+    st.subheader("🔄 Recuperar senha")
+    recuperar_email = st.text_input("Digite seu e-mail cadastrado:")
+    enviar = st.button("Enviar senha para o e-mail")
+
+    if enviar:
+        if recuperar_email in usuarios:
+            senha_usuario = usuarios[recuperar_email]["senha"]
+            mensagem = f"Sua senha de acesso ao sistema é: {senha_usuario}"
+            enviado = enviar_email(recuperar_email, "Recuperação de Senha - Portal Psico", mensagem)
+            if enviado:
+                st.success("✅ Sua senha foi enviada para o e-mail informado!")
+            else:
+                st.error("❌ Falha ao enviar o e-mail. Verifique a conexão.")
         else:
-            st.error("❌ E-mail ou senha incorretos.")
+            st.warning("⚠️ E-mail não encontrado no sistema.")
 
-# --- Área logada ---
-if usuario_logado:
-    st.success(f"✅ Bem-vindo(a), {usuario_logado['nome']}!")
+# ========================================
+# 🔹 CADASTRO DE NOVOS USUÁRIOS (APENAS ADM)
+# ========================================
+elif aba == "Criar Usuário (ADM)":
+    if "usuario" in st.session_state and st.session_state["tipo"] == "Adm":
+        st.subheader("👥 Cadastrar novo usuário")
+        with st.form("form_cadastro"):
+            novo_nome = st.text_input("Nome completo do usuário")
+            novo_email = st.text_input("E-mail do usuário")
+            nova_senha = st.text_input("Senha", type="password")
+            tipo_usuario = st.selectbox("Tipo de conta", ["Pais", "Adm"])
+            cadastrar = st.form_submit_button("Cadastrar Usuário")
 
-    # --- Área do ADM ---
-    if usuario_logado["tipo"] == "Admin":
-        st.subheader("👤 Gerenciamento de Usuários")
-        with st.expander("Cadastrar novo usuário"):
-            novo_nome = st.text_input("Nome completo", key="novo_nome")
-            novo_email = st.text_input("E-mail", key="novo_email")
-            novo_tipo = st.selectbox("Tipo", ["Pais"], key="novo_tipo")
-            novo_senha = st.text_input("Senha", key="novo_senha")
-            cadastrar_btn = st.button("Cadastrar")
-            if cadastrar_btn:
+            if cadastrar:
                 if novo_email in usuarios:
-                    st.warning("Usuário já cadastrado.")
-                elif novo_nome == "" or novo_email == "" or novo_senha == "":
-                    st.warning("Preencha todos os campos.")
+                    st.warning("⚠️ Este e-mail já está cadastrado.")
+                elif not novo_nome or not novo_email or not nova_senha:
+                    st.warning("⚠️ Preencha todos os campos.")
                 else:
-                    usuarios[novo_email] = {"nome": novo_nome, "senha": novo_senha, "tipo": novo_tipo}
-                    salvar_usuarios()
-                    enviar_email(novo_email, "Cadastro no Portal Psico", f"Sua conta foi criada!\nE-mail: {novo_email}\nSenha: {novo_senha}")
-                    st.success(f"Usuário {novo_nome} cadastrado com sucesso e e-mail enviado!")
+                    usuarios[novo_email] = {
+                        "nome": novo_nome,
+                        "senha": nova_senha,
+                        "tipo": tipo_usuario
+                    }
+                    salvar_usuarios(usuarios)
+                    st.success(f"✅ Usuário {novo_nome} cadastrado com sucesso!")
+    else:
+        st.error("❌ Apenas administradores podem cadastrar novos usuários.")
 
-        st.subheader("📄 Relatórios")
-        rel_files = [f for f in os.listdir(PASTA_RELATORIOS) if f.endswith(".pdf")]
-        if rel_files:
-            for pdf in rel_files:
-                st.write(pdf)
-                if st.button(f"Excluir {pdf}"):
-                    os.remove(os.path.join(PASTA_RELATORIOS, pdf))
-                    st.success(f"{pdf} removido!")
-        else:
-            st.info("Nenhum relatório enviado.")
+# ========================================
+# 🧠 ÁREA LOGADA
+# ========================================
+if "usuario" in st.session_state:
+    st.divider()
+    email_logado = st.session_state["usuario"]
+    tipo_logado = st.session_state["tipo"]
 
-        with st.expander("Enviar relatório"):
-            arquivo_pdf = st.file_uploader("Selecionar PDF", type="pdf")
-            email_para = st.selectbox("Para qual usuário?", ["Todos"] + [u["nome"] for u in usuarios.values() if u["tipo"] == "Pais"])
-            enviar_rel = st.button("Enviar")
-            if enviar_rel and arquivo_pdf:
-                caminho = os.path.join(PASTA_RELATORIOS, arquivo_pdf.name)
+    st.markdown(f"👤 **Usuário logado:** {usuarios[email_logado]['nome']} ({tipo_logado})")
+
+    # ===== Área do Administrador =====
+    if tipo_logado == "Adm":
+        st.subheader("📤 Upload de Relatórios")
+        lista_usuarios = [u for u in usuarios.keys() if usuarios[u]["tipo"] == "Pais"]
+        if lista_usuarios:
+            destinatario = st.selectbox("Selecione o responsável (pai/mãe):", lista_usuarios)
+            arquivo = st.file_uploader("Selecione o relatório (PDF)", type=["pdf"])
+            if arquivo:
+                pasta_usuario = os.path.join(RELATORIOS_DIR, destinatario)
+                if not os.path.exists(pasta_usuario):
+                    os.makedirs(pasta_usuario)
+                caminho = os.path.join(pasta_usuario, arquivo.name)
                 with open(caminho, "wb") as f:
-                    f.write(arquivo_pdf.getbuffer())
-                st.success("Relatório enviado!")
-                st.info(f"Arquivo disponível para: {email_para}")
+                    f.write(arquivo.getbuffer())
+                st.success(f"✅ Relatório '{arquivo.name}' enviado para {destinatario}.")
 
-    # --- Área do USUÁRIO ---
-    else:
-        st.subheader("📄 Seus relatórios")
-        arquivos_usuario = []
-        for f in os.listdir(PASTA_RELATORIOS):
-            for u_email, u_data in usuarios.items():
-                if u_data["nome"] in f:
-                    arquivos_usuario.append(f)
-        if arquivos_usuario:
-            for pdf in arquivos_usuario:
-                caminho = os.path.join(PASTA_RELATORIOS, pdf)
-                st.download_button(f"⬇️ {pdf}", data=open(caminho, "rb").read(), file_name=pdf, mime="application/pdf")
+        st.subheader("🗑️ Excluir relatórios")
+        usuario_alvo = st.selectbox("Selecione o usuário para excluir relatório:", lista_usuarios)
+        relatorios_usuario = listar_relatorios(usuario_alvo)
+        if relatorios_usuario:
+            relatorio_excluir = st.selectbox("Selecione o relatório para excluir:", relatorios_usuario)
+            if st.button("Excluir relatório"):
+                os.remove(os.path.join(RELATORIOS_DIR, usuario_alvo, relatorio_excluir))
+                st.success(f"🗑️ Relatório '{relatorio_excluir}' excluído com sucesso!")
         else:
-            st.info("Nenhum relatório disponível.")
+            st.info("Nenhum relatório disponível para este usuário.")
 
-    st.markdown("---")
-    st.markdown("📝 Sistema criado por **leandro_ferro**. Todos os direitos reservados.")
-
-# --- Recuperar senha ---
-st.markdown("---")
-st.subheader("🔑 Esqueci minha senha")
-rec_email = st.text_input("Digite seu e-mail para recuperação", key="rec_email")
-rec_btn = st.button("Recuperar senha")
-if rec_btn:
-    u = usuarios.get(rec_email)
-    if u:
-        enviar_email(rec_email, "Recuperação de senha", f"Sua senha é: {u['senha']}")
-        st.success("✅ E-mail enviado com a sua senha!")
+    # ===== Área dos Pais =====
     else:
-        st.error("❌ E-mail não encontrado.")
+        st.subheader("📥 Meus Relatórios")
+        relatorios = listar_relatorios(email_logado)
+        if relatorios:
+            for rel in relatorios:
+                caminho = os.path.join(RELATORIOS_DIR, email_logado, rel)
+                with open(caminho, "rb") as f:
+                    st.download_button(label=f"📄 Baixar {rel}", data=f, file_name=rel)
+        else:
+            st.info("Ainda não há relatórios disponíveis para você.")
+
+# ========================================
+# ⚖️ DIREITOS AUTORAIS
+# ========================================
+st.markdown(
+    "<hr><p style='text-align:center; color:gray;'>© 2025 Sistema desenvolvido por <b>Leandro Ferro</b>. Todos os direitos reservados.</p>",
+    unsafe_allow_html=True
+)
 
 
 
